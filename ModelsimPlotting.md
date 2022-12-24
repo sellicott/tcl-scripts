@@ -72,7 +72,7 @@ add wave -unsigned sim:/ScanChainTop_tb/data_bus
 
 Combining the results from the previous commands results in the following code snippet. Note that we put the desired radix before the `-label` option.
 ```tcl
-# Plot a set of signals, giving each one more descriptive titles.
+# Plot a set of signals, and control their displayed radix
 add wave \
     -logic -label "Global Clock" sim:/ScanChainTop_tb/clk \
     -label "Global Reset" sim:/ScanChainTop_tb/reset \
@@ -87,7 +87,7 @@ i.e. `add wave -group "Group Name" signal_path_1 ... signal_path_n`
 
 We can group the signals we have been working with throughout the document into a group called "Top Level Signals" using the following code snippet. 
 ```tcl
-# Plot a set of signals, giving each one more descriptive titles.
+# Plot a set of signals, grouping them together into a block.
 add wave \
     -group "Top Level Signals" \
     -logic -label "Global Clock" sim:/ScanChainTop_tb/clk \
@@ -98,18 +98,103 @@ add wave \
 ### Dividers
 To seperate signals either between or inside of groups of signals we can use the `-divider` option to the `add wave` command. This parameter requires one argument, the name to give divider.
 
-i.e `add wave -divider "divider name"` will add a divider at the end of the list
+i.e `add wave -divider "divider name"`
 
 Adding dividers inside groups simply reqires the `-divider` parameter to be listed after the `-group` parameter.
 
 Working from our previous examples, we can split the previous group into control and data signals with two dividers.
 ```tcl
-# Plot a set of signals, giving each one more descriptive titles.
+# Plot a set of signals in a group
+# dividing them into control and data signals
 add wave \
     -group "Top Level Signals" \
--divider "control signals" \
+    -divider "control signals" \
     -logic -label "Global Clock" sim:/ScanChainTop_tb/clk \
     -label "Global Reset" sim:/ScanChainTop_tb/reset \
--divider "data signals" \
-    -unsigned -label "Data Bus In"  sim:/ScanChainTop_tb/data_bus
+    -divider "data signals" \
+    -unsigned -label "Data Bus In" sim:/ScanChainTop_tb/data_bus
 ```
+
+## Defining Waveform Groups in Variables
+I find it convineint to group sets of waveforms to plot (and their associated labels and radixes) into a variable to plot all together.
+
+The format I have ended up using looks like this
+```tcl
+# Variable containing the list of waveforms we want to plot
+# along with formating parameters and dividers
+set waveforms { \
+    -divider "control signals" \
+    -logic -label "Global Clock" sim:/ScanChainTop_tb/clk \
+           -label "Global Reset" sim:/ScanChainTop_tb/reset \
+    -divider "data signals" \
+    -unsigned -label "Data Bus In" sim:/ScanChainTop_tb/data_bus \
+}
+```
+
+Unfortunately if we directly pass this variable to `add wave` it will not work. Due to how tcl defines variables, directly passing in this variable to `add wave` causes it to try and add the whole list as a single waveform, which it doesn't like very much. In order to get around this limitation, I wrote a tcl function to generate waveform groups from variables like this.
+
+### The `addWaveformGroup` function
+```tcl
+proc addWaveformGroup { group_name waveform_list } {
+    # Delete the group if it exists
+    delete wave $group_name
+    set arguments "-group \"$group_name\" $waveform_list"
+    eval "add wave $arguments"
+}
+```
+
+This function takes in two parameters as arguments, the display name of the group, and a list of waveforms (and properties) to display as a single string. It will delete any old groups of the same name if it exists, then create a new group of the specified name and add the list of waveforms to it. 
+
+## Putting it All Together
+Now that we have our plotting function and we know how to define groups of waveforms, we can put this together into a script we can use to plot waveforms programatically. 
+
+I end up splitting this into two files, one holds a list of waveform groups that I want to plot together, the other will load the first script then display the waveforms in the desired order. 
+
+The first script would look something like this:
+```tcl
+# waveform_groups.tcl:
+# source this file to get access to the waveform groups for plotting
+
+# List of top level waveforms
+set top_level_waveforms { \
+    -divider "control signals" \
+    -logic -label "Global Clock" sim:/ScanChainTop_tb/clk \
+           -label "Global Reset" sim:/ScanChainTop_tb/reset \
+    -divider "data signals" \
+    -unsigned -label "Data Bus In" sim:/ScanChainTop_tb/data_bus \
+}
+
+# ...
+```
+
+The plotting script would look something like this.
+```tcl
+# plot_waveforms.tcl: 
+# Source this script from the ModelSim command line to plot the waveform groups
+
+proc addWaveformGroup { group_name waveform_list } {
+    # Delete the group if it exists
+    delete wave $group_name
+    set arguments "-group \"$group_name\" $waveform_list"
+    eval "add wave $arguments"
+}
+
+# clean everything up
+delete wave *
+
+# get our waveform groups
+source waveform_groups.tcl
+
+# plot the waveforms
+addWaveformGroup "Top Level Waveforms" $top_level_waveforms
+add wave -divider ""
+# ...
+# plot other groups here
+```
+
+## Conclusion
+There you have it, my process for plotting waveforms in ModelSim programatically. I hope this makes using ModelSim less agrivating.
+
+The code snippets were derived from my tcl scripts here ([tcl-scripts](https://github.com/sellicott/tcl-scripts)). Particularly [clk_div_wfms.tcl](https://github.com/sellicott/tcl-scripts/blob/main/clk_div_wfms.tcl) and [clk_div_load_wfms.do](https://github.com/sellicott/tcl-scripts/blob/main/clk_div_load_wfms.do)
+
+The script [recompile_and_run.tcl](https://github.com/sellicott/tcl-scripts/blob/main/recompile_and_run.tcl) might also be of interest, but I think it is pretty self explanitory, so I didn't bother expounding on it here. It just goes through and recompiles a list of verilog files.
